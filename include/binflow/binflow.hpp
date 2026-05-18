@@ -32,6 +32,78 @@ struct field_id {
     std::uint32_t value;
 };
 
+template <class Storage>
+class basic_flags {
+public:
+    static_assert(std::is_unsigned_v<Storage>, "flags storage must be unsigned");
+
+    using storage_type = Storage;
+
+    constexpr basic_flags() = default;
+
+    explicit constexpr basic_flags(Storage value)
+        : value_(value) {}
+
+    [[nodiscard]] constexpr Storage value() const noexcept {
+        return value_;
+    }
+
+    constexpr void clear() noexcept {
+        value_ = 0;
+    }
+
+    void set(std::uint32_t bit, bool enabled = true) {
+        check_bit(bit);
+        const Storage mask = Storage{1} << bit;
+        if (enabled) {
+            value_ |= mask;
+        } else {
+            value_ &= ~mask;
+        }
+    }
+
+    template <class Enum>
+        requires std::is_enum_v<Enum>
+    void set(Enum bit, bool enabled = true) {
+        set(static_cast<std::uint32_t>(bit), enabled);
+    }
+
+    void reset(std::uint32_t bit) {
+        set(bit, false);
+    }
+
+    template <class Enum>
+        requires std::is_enum_v<Enum>
+    void reset(Enum bit) {
+        set(bit, false);
+    }
+
+    [[nodiscard]] bool test(std::uint32_t bit) const {
+        check_bit(bit);
+        return (value_ & (Storage{1} << bit)) != 0;
+    }
+
+    template <class Enum>
+        requires std::is_enum_v<Enum>
+    [[nodiscard]] bool test(Enum bit) const {
+        return test(static_cast<std::uint32_t>(bit));
+    }
+
+    friend constexpr bool operator==(basic_flags, basic_flags) = default;
+
+private:
+    static void check_bit(std::uint32_t bit) {
+        if (bit >= std::numeric_limits<Storage>::digits) {
+            throw std::out_of_range("flag bit is out of range");
+        }
+    }
+
+    Storage value_ = 0;
+};
+
+using flags32 = basic_flags<std::uint32_t>;
+using flags64 = basic_flags<std::uint64_t>;
+
 namespace literals {
 
 consteval field_id operator""_f(unsigned long long value) {
@@ -380,6 +452,16 @@ struct field_traits<std::uint64_t> {
 };
 
 template <>
+struct field_traits<flags32> {
+    static constexpr wire_type type = wire_type::varint;
+};
+
+template <>
+struct field_traits<flags64> {
+    static constexpr wire_type type = wire_type::varint;
+};
+
+template <>
 struct field_traits<std::int8_t> {
     static constexpr wire_type type = wire_type::varint;
 };
@@ -483,6 +565,14 @@ private:
 
     void write_value(std::uint64_t value) {
         detail::write_varint(writer_, value);
+    }
+
+    void write_value(flags32 value) {
+        detail::write_varint(writer_, value.value());
+    }
+
+    void write_value(flags64 value) {
+        detail::write_varint(writer_, value.value());
     }
 
     void write_value(std::int8_t value) {
@@ -596,6 +686,14 @@ private:
         return detail::varint_size(value);
     }
 
+    static std::size_t value_size(flags32 value) {
+        return detail::varint_size(value.value());
+    }
+
+    static std::size_t value_size(flags64 value) {
+        return detail::varint_size(value.value());
+    }
+
     static std::size_t value_size(std::int8_t value) {
         return detail::varint_size(detail::encode_zigzag(value));
     }
@@ -702,6 +800,16 @@ private:
     void read_value(wire_type actual, std::uint64_t& value) {
         require_wire_type(actual, wire_type::varint);
         value = detail::read_varint(reader_);
+    }
+
+    void read_value(wire_type actual, flags32& value) {
+        require_wire_type(actual, wire_type::varint);
+        value = flags32{static_cast<std::uint32_t>(detail::read_varint(reader_))};
+    }
+
+    void read_value(wire_type actual, flags64& value) {
+        require_wire_type(actual, wire_type::varint);
+        value = flags64{detail::read_varint(reader_)};
     }
 
     void read_value(wire_type actual, std::int8_t& value) {

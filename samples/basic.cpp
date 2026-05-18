@@ -9,6 +9,24 @@
 
 using namespace binflow::literals;
 
+enum class UserOption : std::uint32_t {
+    CanPost = 0,
+    CanUpload = 1,
+    CanExport = 2,
+    ReceivesDigest = 3,
+    UsesBetaUi = 4,
+    RequiresReview = 5,
+    HasSso = 6,
+    HasMfa = 7,
+    CanInvite = 8,
+    CanArchive = 9,
+    CanShare = 10,
+    CanDelete = 11,
+    CanBill = 12,
+    CanAudit = 13,
+    IsInternal = 14,
+};
+
 struct Profile {
     std::string display_name;
     std::uint32_t reputation = 0;
@@ -41,6 +59,7 @@ struct UserV2 {
     std::uint16_t level = 0;
     std::int32_t balance = 0;
     std::string note;
+    binflow::flags32 options;
     Profile profile;
 
     template <class Archive>
@@ -52,7 +71,8 @@ struct UserV2 {
           (5_f, profile)
           (6_f, level)
           (7_f, balance)
-          (8_f, note, binflow::omit_if_default);
+          (8_f, note, binflow::omit_if_default)
+          (9_f, options);
     }
 };
 
@@ -72,8 +92,10 @@ int main() {
         .score = 1200,
         .level = 12,
         .balance = -35,
+        .options = binflow::flags32{0x7fff},
         .profile = {.display_name = "Alice A.", .reputation = 77},
     };
+    written.options.reset(UserOption::CanDelete);
 
     const auto expected_size = binflow::serialized_size(written);
     const auto bytes = binflow::serialize(written);
@@ -95,6 +117,8 @@ int main() {
               << ", level=" << read_v2.level
               << ", balance=" << read_v2.balance
               << ", note='" << read_v2.note << '\''
+              << ", can_upload=" << read_v2.options.test(UserOption::CanUpload)
+              << ", can_delete=" << read_v2.options.test(UserOption::CanDelete)
               << ", display_name=" << read_v2.profile.display_name
               << ", reputation=" << read_v2.profile.reputation << '\n';
 

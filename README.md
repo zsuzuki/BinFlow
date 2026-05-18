@@ -13,6 +13,12 @@ Missing fields keep the C++ default value, so new readers can read old data.
 ```cpp
 using namespace binflow::literals;
 
+enum class UserOption : std::uint32_t {
+    CanPost = 0,
+    CanUpload = 1,
+    UsesBetaUi = 2,
+};
+
 struct User {
     std::uint64_t id = 0;
     std::string name;
@@ -20,6 +26,7 @@ struct User {
     std::uint16_t level = 0;
     std::int32_t balance = 0;
     std::string note;
+    binflow::flags32 options;
 
     template <class Archive>
     void serialize(Archive& ar) {
@@ -28,15 +35,23 @@ struct User {
           (3_f, active)
           (4_f, level)
           (5_f, balance)
-          (6_f, note, binflow::omit_if_default);
+          (6_f, note, binflow::omit_if_default)
+          (7_f, options);
     }
 };
+
+User user;
+user.options.set(UserOption::CanUpload);
 ```
 
 Unsigned integers are varint encoded. Signed integers use zigzag varint, so
 small negative values stay small. `omit_if_default` skips a field while writing
 when the value equals its default-constructed value; while reading, the same
 line keeps the default when the field is missing.
+
+`flags32` and `flags64` pack groups of booleans into one varint field. Bit
+positions are part of the persisted schema, so append new bits and do not reuse
+old positions.
 
 The exact encoded size can be computed without producing a byte buffer:
 
