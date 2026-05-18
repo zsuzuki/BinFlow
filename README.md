@@ -45,6 +45,13 @@ const auto size = binflow::serialized_size(user);
 auto bytes = binflow::serialize(user); // reserves the computed size first
 ```
 
+Existing memory can also be used as the serialization target:
+
+```cpp
+std::vector<std::byte> buffer(binflow::serialized_size(user));
+const auto written = binflow::serialize(user, buffer.data(), buffer.size());
+```
+
 Build and run:
 
 ```sh

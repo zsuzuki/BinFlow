@@ -71,6 +71,41 @@ private:
     std::vector<std::byte> data_;
 };
 
+class fixed_memory_writer {
+public:
+    fixed_memory_writer(void* data, std::size_t size)
+        : data_(static_cast<std::byte*>(data)), size_(size) {
+        if (data == nullptr && size != 0) {
+            throw std::runtime_error("output buffer is null");
+        }
+    }
+
+    void write(std::span<const std::byte> bytes) {
+        if (remaining() < bytes.size()) {
+            throw std::runtime_error("output buffer is too small");
+        }
+        std::memcpy(data_ + pos_, bytes.data(), bytes.size());
+        pos_ += bytes.size();
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept {
+        return pos_;
+    }
+
+    [[nodiscard]] std::size_t capacity() const noexcept {
+        return size_;
+    }
+
+    [[nodiscard]] std::size_t remaining() const noexcept {
+        return size_ - pos_;
+    }
+
+private:
+    std::byte* data_;
+    std::size_t size_;
+    std::size_t pos_ = 0;
+};
+
 class file_writer {
 public:
     explicit file_writer(const std::string& path)
@@ -728,6 +763,19 @@ std::vector<std::byte> serialize(const T& value) {
     basic_output_archive archive(writer);
     const_cast<T&>(value).serialize(archive);
     return std::move(writer).take_bytes();
+}
+
+template <serializable T>
+std::size_t serialize(const T& value, void* data, std::size_t size) {
+    const auto required_size = serialized_size(value);
+    if (size < required_size) {
+        throw std::runtime_error("output buffer is too small");
+    }
+
+    fixed_memory_writer writer(data, size);
+    basic_output_archive archive(writer);
+    const_cast<T&>(value).serialize(archive);
+    return writer.size();
 }
 
 template <serializable T>

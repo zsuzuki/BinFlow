@@ -77,9 +77,14 @@ int main() {
 
     const auto expected_size = binflow::serialized_size(written);
     const auto bytes = binflow::serialize(written);
+    std::vector<std::byte> external_buffer(expected_size);
+    const auto external_size = binflow::serialize(written, external_buffer.data(), external_buffer.size());
+    const bool external_matches = bytes == external_buffer;
 
     std::cout << "computed size: " << expected_size << " bytes\n";
     std::cout << "encoded size: " << bytes.size() << " bytes\n";
+    std::cout << "external buffer size: " << external_size << " bytes\n";
+    std::cout << "external buffer matches: " << std::boolalpha << external_matches << '\n';
     dump_hex(bytes);
 
     const auto read_v2 = binflow::deserialize<UserV2>(bytes);
