@@ -1,3 +1,4 @@
 build/
+.cache/
 *.binflow
 .DS_Store
