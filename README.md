@@ -1,0 +1,47 @@
+# BinFlow sample
+
+C++20 header-only sample for a compact binary serialization format.
+
+The wire format is a small TLV-style stream:
+
+- key: `varint((field_id << 3) | wire_type)`
+- value: varint, fixed-width value, or length-delimited bytes
+
+Unknown fields are skipped, so adding new fields keeps old readers working.
+Missing fields keep the C++ default value, so new readers can read old data.
+
+```cpp
+using namespace binflow::literals;
+
+struct User {
+    std::uint64_t id = 0;
+    std::string name;
+    bool active = false;
+    std::uint16_t level = 0;
+    std::int32_t balance = 0;
+    std::string note;
+
+    template <class Archive>
+    void serialize(Archive& ar) {
+        ar(1_f, id)
+          (2_f, name)
+          (3_f, active)
+          (4_f, level)
+          (5_f, balance)
+          (6_f, note, binflow::omit_if_default);
+    }
+};
+```
+
+Unsigned integers are varint encoded. Signed integers use zigzag varint, so
+small negative values stay small. `omit_if_default` skips a field while writing
+when the value equals its default-constructed value; while reading, the same
+line keeps the default when the field is missing.
+
+Build and run:
+
+```sh
+cmake -S . -B build
+cmake --build build
+./build/binflow_basic
+```

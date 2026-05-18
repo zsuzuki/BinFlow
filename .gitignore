@@ -1,0 +1,3 @@
+build/
+*.binflow
+.DS_Store
