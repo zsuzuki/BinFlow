@@ -20,9 +20,12 @@ enum class UserOption : std::uint32_t {
 };
 
 struct User {
+    static constexpr std::uint32_t default_quota = 100000;
+
     std::uint64_t id = 0;
     std::string name;
     bool active = false;
+    std::uint32_t quota = default_quota;
     std::uint16_t level = 0;
     std::int32_t balance = 0;
     std::string note;
@@ -36,7 +39,8 @@ struct User {
           (4_f, level)
           (5_f, balance)
           (6_f, note, binflow::omit_if_default)
-          (7_f, options);
+          (7_f, options)
+          (8_f, quota, binflow::omit_if(default_quota));
     }
 };
 
@@ -48,6 +52,9 @@ Unsigned integers are varint encoded. Signed integers use zigzag varint, so
 small negative values stay small. `omit_if_default` skips a field while writing
 when the value equals its default-constructed value; while reading, the same
 line keeps the default when the field is missing.
+
+Use `omit_if(value)` when the omitted value is not `T{}`. Keep that value in a
+named constant so the member initializer and schema rule stay aligned.
 
 `flags32` and `flags64` pack groups of booleans into one varint field. Bit
 positions are part of the persisted schema, so append new bits and do not reuse

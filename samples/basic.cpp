@@ -52,10 +52,13 @@ struct UserV1 {
 };
 
 struct UserV2 {
+    static constexpr std::uint32_t default_quota = 100000;
+
     std::uint64_t id = 0;
     std::string name;
     bool active = false;
     std::uint32_t score = 100;
+    std::uint32_t quota = default_quota;
     std::uint16_t level = 0;
     std::int32_t balance = 0;
     std::string note;
@@ -72,7 +75,8 @@ struct UserV2 {
           (6_f, level)
           (7_f, balance)
           (8_f, note, binflow::omit_if_default)
-          (9_f, options);
+          (9_f, options)
+          (10_f, quota, binflow::omit_if(default_quota));
     }
 };
 
@@ -114,6 +118,7 @@ int main() {
               << ", name=" << read_v2.name
               << ", active=" << std::boolalpha << read_v2.active
               << ", score=" << read_v2.score
+              << ", quota=" << read_v2.quota
               << ", level=" << read_v2.level
               << ", balance=" << read_v2.balance
               << ", note='" << read_v2.note << '\''

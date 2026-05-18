@@ -21,6 +21,16 @@ struct omit_if_default_t {
 
 inline constexpr omit_if_default_t omit_if_default{};
 
+template <class T>
+struct omit_if_t {
+    T value;
+};
+
+template <class T>
+[[nodiscard]] constexpr omit_if_t<std::remove_cvref_t<T>> omit_if(T&& value) {
+    return omit_if_t<std::remove_cvref_t<T>>{std::forward<T>(value)};
+}
+
 enum class wire_type : std::uint8_t {
     varint = 0,
     fixed32 = 1,
@@ -283,6 +293,9 @@ struct archive_probe {
     template <class T>
     void field(std::uint32_t, T&, omit_if_default_t) {}
 
+    template <class T, class U>
+    void field(std::uint32_t, T&, omit_if_t<U>) {}
+
     template <class T>
     archive_probe& operator()(field_id, T&) {
         return *this;
@@ -290,6 +303,11 @@ struct archive_probe {
 
     template <class T>
     archive_probe& operator()(field_id, T&, omit_if_default_t) {
+        return *this;
+    }
+
+    template <class T, class U>
+    archive_probe& operator()(field_id, T&, omit_if_t<U>) {
         return *this;
     }
 };
@@ -511,6 +529,15 @@ public:
         field(id, value);
     }
 
+    template <class T, class U>
+    void field(std::uint32_t id, const T& value, omit_if_t<U> condition) {
+        static_assert(id_is_valid_message<T>(), "unsupported field type");
+        if (value == condition.value) {
+            return;
+        }
+        field(id, value);
+    }
+
     template <class T>
     basic_output_archive& operator()(field_id id, const T& value) {
         field(id.value, value);
@@ -520,6 +547,12 @@ public:
     template <class T>
     basic_output_archive& operator()(field_id id, const T& value, omit_if_default_t omit) {
         field(id.value, value, omit);
+        return *this;
+    }
+
+    template <class T, class U>
+    basic_output_archive& operator()(field_id id, const T& value, omit_if_t<U> condition) {
+        field(id.value, value, condition);
         return *this;
     }
 
@@ -626,6 +659,15 @@ public:
         field(id, value);
     }
 
+    template <class T, class U>
+    void field(std::uint32_t id, const T& value, omit_if_t<U> condition) {
+        static_assert(id_is_valid_message<T>(), "unsupported field type");
+        if (value == condition.value) {
+            return;
+        }
+        field(id, value);
+    }
+
     template <class T>
     size_archive& operator()(field_id id, const T& value) {
         field(id.value, value);
@@ -635,6 +677,12 @@ public:
     template <class T>
     size_archive& operator()(field_id id, const T& value, omit_if_default_t omit) {
         field(id.value, value, omit);
+        return *this;
+    }
+
+    template <class T, class U>
+    size_archive& operator()(field_id id, const T& value, omit_if_t<U> condition) {
+        field(id.value, value, condition);
         return *this;
     }
 
@@ -742,6 +790,11 @@ public:
         field(id, value);
     }
 
+    template <class T, class U>
+    void field(std::uint32_t id, T& value, omit_if_t<U>) {
+        field(id, value);
+    }
+
     template <class T>
     basic_input_archive& operator()(field_id id, T& value) {
         field(id.value, value);
@@ -751,6 +804,12 @@ public:
     template <class T>
     basic_input_archive& operator()(field_id id, T& value, omit_if_default_t omit) {
         field(id.value, value, omit);
+        return *this;
+    }
+
+    template <class T, class U>
+    basic_input_archive& operator()(field_id id, T& value, omit_if_t<U> condition) {
+        field(id.value, value, condition);
         return *this;
     }
 
