@@ -30,6 +30,9 @@ struct User {
     std::int32_t balance = 0;
     std::string note;
     binflow::flags32 options;
+    std::vector<std::uint32_t> checkpoints;
+    std::vector<std::int32_t> offsets;
+    std::array<std::uint16_t, 4> buckets{};
 
     template <class Archive>
     void serialize(Archive& ar) {
@@ -40,7 +43,10 @@ struct User {
           (5_f, balance)
           (6_f, note, binflow::omit_if_default)
           (7_f, options)
-          (8_f, quota, binflow::omit_if(default_quota));
+          (8_f, quota, binflow::omit_if(default_quota))
+          (9_f, checkpoints)
+          (10_f, offsets)
+          (11_f, buckets);
     }
 };
 
@@ -59,6 +65,11 @@ named constant so the member initializer and schema rule stay aligned.
 `flags32` and `flags64` pack groups of booleans into one varint field. Bit
 positions are part of the persisted schema, so append new bits and do not reuse
 old positions.
+
+Numeric vectors and arrays are encoded as packed length-delimited varint
+payloads. Supported element types are unsigned and signed 8/16/32/64-bit
+integers. Strings and `std::vector<bool>` are intentionally not part of packed
+container support.
 
 The exact encoded size can be computed without producing a byte buffer:
 

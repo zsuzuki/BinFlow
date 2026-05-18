@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -325,6 +326,17 @@ namespace detail {
 template <class T>
 inline constexpr bool always_false_v = false;
 
+template <class T>
+inline constexpr bool is_packed_numeric_v =
+    std::is_same_v<T, std::uint8_t> ||
+    std::is_same_v<T, std::uint16_t> ||
+    std::is_same_v<T, std::uint32_t> ||
+    std::is_same_v<T, std::uint64_t> ||
+    std::is_same_v<T, std::int8_t> ||
+    std::is_same_v<T, std::int16_t> ||
+    std::is_same_v<T, std::int32_t> ||
+    std::is_same_v<T, std::int64_t>;
+
 template <class Writer>
 void write_byte(Writer& writer, std::byte byte) {
     writer.write(std::span<const std::byte>(&byte, 1));
@@ -381,6 +393,126 @@ static_assert(decode_zigzag<std::int8_t>(1) == -1);
 static_assert(decode_zigzag<std::int16_t>(encode_zigzag<std::int16_t>(-1234)) == -1234);
 static_assert(decode_zigzag<std::int32_t>(encode_zigzag<std::int32_t>(-123456)) == -123456);
 static_assert(decode_zigzag<std::int64_t>(encode_zigzag<std::int64_t>(-123456789)) == -123456789);
+
+template <class T>
+std::uint64_t encode_packed_numeric(T value) {
+    if constexpr (std::is_signed_v<T>) {
+        return encode_zigzag(value);
+    } else {
+        return value;
+    }
+}
+
+template <class T>
+T decode_packed_numeric(std::uint64_t value) {
+    if constexpr (std::is_signed_v<T>) {
+        return decode_zigzag<T>(static_cast<std::make_unsigned_t<T>>(value));
+    } else {
+        return static_cast<T>(value);
+    }
+}
+
+template <class T>
+std::size_t packed_numeric_payload_size(const std::vector<T>& values) {
+    static_assert(is_packed_numeric_v<T>, "unsupported packed vector element type");
+
+    std::size_t size = 0;
+    for (const auto value : values) {
+        size += varint_size(encode_packed_numeric(value));
+    }
+    return size;
+}
+
+template <class T, std::size_t N>
+std::size_t packed_numeric_payload_size(const std::array<T, N>& values) {
+    static_assert(is_packed_numeric_v<T>, "unsupported packed array element type");
+
+    std::size_t size = 0;
+    for (const auto value : values) {
+        size += varint_size(encode_packed_numeric(value));
+    }
+    return size;
+}
+
+template <class Writer, class T>
+void write_packed_numeric_payload(Writer& writer, const std::vector<T>& values) {
+    static_assert(is_packed_numeric_v<T>, "unsupported packed vector element type");
+
+    for (const auto value : values) {
+        write_varint(writer, encode_packed_numeric(value));
+    }
+}
+
+template <class Writer, class T, std::size_t N>
+void write_packed_numeric_payload(Writer& writer, const std::array<T, N>& values) {
+    static_assert(is_packed_numeric_v<T>, "unsupported packed array element type");
+
+    for (const auto value : values) {
+        write_varint(writer, encode_packed_numeric(value));
+    }
+}
+
+template <class Reader, class T>
+void read_packed_numeric_payload(Reader& reader, std::size_t size, std::vector<T>& values) {
+    static_assert(is_packed_numeric_v<T>, "unsupported packed vector element type");
+
+    const auto bytes = reader.read_bytes(size);
+    struct span_reader {
+        std::span<const std::byte> bytes;
+        std::size_t pos = 0;
+
+        [[nodiscard]] bool eof() const noexcept {
+            return pos == bytes.size();
+        }
+
+        [[nodiscard]] std::byte read_byte() {
+            if (pos == bytes.size()) {
+                throw std::runtime_error("unexpected end of packed vector");
+            }
+            return bytes[pos++];
+        }
+    };
+
+    span_reader payload_reader{bytes};
+    values.clear();
+    while (!payload_reader.eof()) {
+        values.push_back(decode_packed_numeric<T>(read_varint(payload_reader)));
+    }
+}
+
+template <class Reader, class T, std::size_t N>
+void read_packed_numeric_payload(Reader& reader, std::size_t size, std::array<T, N>& values) {
+    static_assert(is_packed_numeric_v<T>, "unsupported packed array element type");
+
+    const auto bytes = reader.read_bytes(size);
+    struct span_reader {
+        std::span<const std::byte> bytes;
+        std::size_t pos = 0;
+
+        [[nodiscard]] bool eof() const noexcept {
+            return pos == bytes.size();
+        }
+
+        [[nodiscard]] std::byte read_byte() {
+            if (pos == bytes.size()) {
+                throw std::runtime_error("unexpected end of packed array");
+            }
+            return bytes[pos++];
+        }
+    };
+
+    span_reader payload_reader{bytes};
+    std::size_t count = 0;
+    while (!payload_reader.eof()) {
+        if (count == N) {
+            throw std::runtime_error("packed array has too many elements");
+        }
+        values[count++] = decode_packed_numeric<T>(read_varint(payload_reader));
+    }
+    if (count != N) {
+        throw std::runtime_error("packed array has too few elements");
+    }
+}
 
 template <class Writer>
 void write_fixed32(Writer& writer, std::uint32_t value) {
@@ -501,6 +633,18 @@ struct field_traits<std::int64_t> {
 
 template <>
 struct field_traits<std::string> {
+    static constexpr wire_type type = wire_type::bytes;
+};
+
+template <class T>
+    requires is_packed_numeric_v<T>
+struct field_traits<std::vector<T>> {
+    static constexpr wire_type type = wire_type::bytes;
+};
+
+template <class T, std::size_t N>
+    requires is_packed_numeric_v<T>
+struct field_traits<std::array<T, N>> {
     static constexpr wire_type type = wire_type::bytes;
 };
 
@@ -627,6 +771,22 @@ private:
     void write_value(const std::string& value) {
         detail::write_varint(writer_, value.size());
         writer_.write(std::as_bytes(std::span(value.data(), value.size())));
+    }
+
+    template <class T>
+        requires detail::is_packed_numeric_v<T>
+    void write_value(const std::vector<T>& values) {
+        const auto payload_size = detail::packed_numeric_payload_size(values);
+        detail::write_varint(writer_, payload_size);
+        detail::write_packed_numeric_payload(writer_, values);
+    }
+
+    template <class T, std::size_t N>
+        requires detail::is_packed_numeric_v<T>
+    void write_value(const std::array<T, N>& values) {
+        const auto payload_size = detail::packed_numeric_payload_size(values);
+        detail::write_varint(writer_, payload_size);
+        detail::write_packed_numeric_payload(writer_, values);
     }
 
     template <serializable T>
@@ -760,6 +920,20 @@ private:
 
     static std::size_t value_size(const std::string& value) {
         return detail::varint_size(value.size()) + value.size();
+    }
+
+    template <class T>
+        requires detail::is_packed_numeric_v<T>
+    static std::size_t value_size(const std::vector<T>& values) {
+        const auto payload_size = detail::packed_numeric_payload_size(values);
+        return detail::varint_size(payload_size) + payload_size;
+    }
+
+    template <class T, std::size_t N>
+        requires detail::is_packed_numeric_v<T>
+    static std::size_t value_size(const std::array<T, N>& values) {
+        const auto payload_size = detail::packed_numeric_payload_size(values);
+        return detail::varint_size(payload_size) + payload_size;
     }
 
     template <serializable T>
@@ -896,6 +1070,22 @@ private:
         const auto size = detail::read_varint(reader_);
         const auto bytes = reader_.read_bytes(static_cast<std::size_t>(size));
         value.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    }
+
+    template <class T>
+        requires detail::is_packed_numeric_v<T>
+    void read_value(wire_type actual, std::vector<T>& values) {
+        require_wire_type(actual, wire_type::bytes);
+        const auto size = detail::read_varint(reader_);
+        detail::read_packed_numeric_payload(reader_, static_cast<std::size_t>(size), values);
+    }
+
+    template <class T, std::size_t N>
+        requires detail::is_packed_numeric_v<T>
+    void read_value(wire_type actual, std::array<T, N>& values) {
+        require_wire_type(actual, wire_type::bytes);
+        const auto size = detail::read_varint(reader_);
+        detail::read_packed_numeric_payload(reader_, static_cast<std::size_t>(size), values);
     }
 
     template <serializable T>

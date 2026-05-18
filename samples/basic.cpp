@@ -1,5 +1,6 @@
 #include <binflow/binflow.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
@@ -63,6 +64,10 @@ struct UserV2 {
     std::int32_t balance = 0;
     std::string note;
     binflow::flags32 options;
+    std::vector<std::uint32_t> checkpoints;
+    std::vector<std::int32_t> offsets;
+    std::array<std::uint16_t, 4> buckets{};
+    std::array<std::int32_t, 3> corrections{};
     Profile profile;
 
     template <class Archive>
@@ -76,7 +81,11 @@ struct UserV2 {
           (7_f, balance)
           (8_f, note, binflow::omit_if_default)
           (9_f, options)
-          (10_f, quota, binflow::omit_if(default_quota));
+          (10_f, quota, binflow::omit_if(default_quota))
+          (11_f, checkpoints)
+          (12_f, offsets)
+          (13_f, buckets)
+          (14_f, corrections);
     }
 };
 
@@ -97,6 +106,10 @@ int main() {
         .level = 12,
         .balance = -35,
         .options = binflow::flags32{0x7fff},
+        .checkpoints = {1, 2, 300, 40000},
+        .offsets = {-1, 0, 2, -300},
+        .buckets = {3, 5, 8, 13},
+        .corrections = {-2, 0, 2},
         .profile = {.display_name = "Alice A.", .reputation = 77},
     };
     written.options.reset(UserOption::CanDelete);
@@ -114,6 +127,8 @@ int main() {
     dump_hex(bytes);
 
     const auto read_v2 = binflow::deserialize<UserV2>(bytes);
+    const bool vector_matches = read_v2.checkpoints == written.checkpoints && read_v2.offsets == written.offsets;
+    const bool array_matches = read_v2.buckets == written.buckets && read_v2.corrections == written.corrections;
     std::cout << "v2: id=" << read_v2.id
               << ", name=" << read_v2.name
               << ", active=" << std::boolalpha << read_v2.active
@@ -124,6 +139,10 @@ int main() {
               << ", note='" << read_v2.note << '\''
               << ", can_upload=" << read_v2.options.test(UserOption::CanUpload)
               << ", can_delete=" << read_v2.options.test(UserOption::CanDelete)
+              << ", checkpoints=" << read_v2.checkpoints.size()
+              << ", offsets=" << read_v2.offsets.size()
+              << ", vectors_match=" << vector_matches
+              << ", arrays_match=" << array_matches
               << ", display_name=" << read_v2.profile.display_name
               << ", reputation=" << read_v2.profile.reputation << '\n';
 
