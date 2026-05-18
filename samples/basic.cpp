@@ -75,8 +75,10 @@ int main() {
         .profile = {.display_name = "Alice A.", .reputation = 77},
     };
 
+    const auto expected_size = binflow::serialized_size(written);
     const auto bytes = binflow::serialize(written);
 
+    std::cout << "computed size: " << expected_size << " bytes\n";
     std::cout << "encoded size: " << bytes.size() << " bytes\n";
     dump_hex(bytes);
 

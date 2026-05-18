@@ -38,6 +38,13 @@ small negative values stay small. `omit_if_default` skips a field while writing
 when the value equals its default-constructed value; while reading, the same
 line keeps the default when the field is missing.
 
+The exact encoded size can be computed without producing a byte buffer:
+
+```cpp
+const auto size = binflow::serialized_size(user);
+auto bytes = binflow::serialize(user); // reserves the computed size first
+```
+
 Build and run:
 
 ```sh

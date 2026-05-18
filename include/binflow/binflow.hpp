@@ -45,6 +45,16 @@ consteval field_id operator""_f(unsigned long long value) {
 
 class memory_writer {
 public:
+    memory_writer() = default;
+
+    explicit memory_writer(std::size_t capacity) {
+        reserve(capacity);
+    }
+
+    void reserve(std::size_t capacity) {
+        data_.reserve(capacity);
+    }
+
     void write(std::span<const std::byte> bytes) {
         data_.insert(data_.end(), bytes.begin(), bytes.end());
     }
@@ -182,6 +192,9 @@ concept serializable = requires(T& value, archive_probe& probe) {
     value.serialize(probe);
 };
 
+template <serializable T>
+std::size_t serialized_size(const T& value);
+
 namespace detail {
 
 template <class T>
@@ -199,6 +212,15 @@ void write_varint(Writer& writer, std::uint64_t value) {
         value >>= 7;
     }
     write_byte(writer, static_cast<std::byte>(value));
+}
+
+constexpr std::size_t varint_size(std::uint64_t value) {
+    std::size_t size = 1;
+    while (value >= 0x80) {
+        ++size;
+        value >>= 7;
+    }
+    return size;
 }
 
 template <class Reader>
@@ -451,15 +473,121 @@ private:
 
     template <serializable T>
     void write_value(const T& value) {
-        memory_writer nested_writer;
-        basic_output_archive<memory_writer> nested_archive(nested_writer);
+        const auto size = serialized_size(value);
+        detail::write_varint(writer_, size);
+        basic_output_archive<Writer> nested_archive(writer_);
         const_cast<T&>(value).serialize(nested_archive);
-        const auto& bytes = nested_writer.bytes();
-        detail::write_varint(writer_, bytes.size());
-        writer_.write(bytes);
     }
 
     Writer& writer_;
+};
+
+class size_archive {
+public:
+    template <class T>
+    void field(std::uint32_t id, const T& value) {
+        static_assert(id_is_valid_message<T>(), "unsupported field type");
+        constexpr auto type = field_wire_type<T>();
+        size_ += key_size(id, type);
+        size_ += value_size(value);
+    }
+
+    template <class T>
+    void field(std::uint32_t id, const T& value, omit_if_default_t) {
+        static_assert(id_is_valid_message<T>(), "unsupported field type");
+        if (value == std::remove_cvref_t<T>{}) {
+            return;
+        }
+        field(id, value);
+    }
+
+    template <class T>
+    size_archive& operator()(field_id id, const T& value) {
+        field(id.value, value);
+        return *this;
+    }
+
+    template <class T>
+    size_archive& operator()(field_id id, const T& value, omit_if_default_t omit) {
+        field(id.value, value, omit);
+        return *this;
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept {
+        return size_;
+    }
+
+private:
+    template <class T>
+    static consteval bool id_is_valid_message() {
+        return requires { detail::field_traits<std::remove_cvref_t<T>>::type; } || serializable<std::remove_cvref_t<T>>;
+    }
+
+    template <class T>
+    static consteval wire_type field_wire_type() {
+        if constexpr (requires { detail::field_traits<std::remove_cvref_t<T>>::type; }) {
+            return detail::field_traits<std::remove_cvref_t<T>>::type;
+        } else if constexpr (serializable<std::remove_cvref_t<T>>) {
+            return wire_type::bytes;
+        } else {
+            static_assert(detail::always_false_v<T>, "unsupported field type");
+        }
+    }
+
+    static std::size_t key_size(std::uint32_t id, wire_type type) {
+        if (id == 0) {
+            throw std::runtime_error("field id 0 is reserved");
+        }
+        return detail::varint_size((static_cast<std::uint64_t>(id) << 3) | static_cast<std::uint8_t>(type));
+    }
+
+    static std::size_t value_size(bool value) {
+        return detail::varint_size(value ? 1 : 0);
+    }
+
+    static std::size_t value_size(std::uint8_t value) {
+        return detail::varint_size(value);
+    }
+
+    static std::size_t value_size(std::uint16_t value) {
+        return detail::varint_size(value);
+    }
+
+    static std::size_t value_size(std::uint32_t value) {
+        return detail::varint_size(value);
+    }
+
+    static std::size_t value_size(std::uint64_t value) {
+        return detail::varint_size(value);
+    }
+
+    static std::size_t value_size(std::int8_t value) {
+        return detail::varint_size(detail::encode_zigzag(value));
+    }
+
+    static std::size_t value_size(std::int16_t value) {
+        return detail::varint_size(detail::encode_zigzag(value));
+    }
+
+    static std::size_t value_size(std::int32_t value) {
+        return detail::varint_size(detail::encode_zigzag(value));
+    }
+
+    static std::size_t value_size(std::int64_t value) {
+        return detail::varint_size(detail::encode_zigzag(value));
+    }
+
+    static std::size_t value_size(const std::string& value) {
+        return detail::varint_size(value.size()) + value.size();
+    }
+
+    template <serializable T>
+    static std::size_t value_size(const T& value) {
+        const auto size = serialized_size(value);
+        return detail::varint_size(size) + size;
+    }
+
+    std::size_t size_ = 0;
 };
 
 template <class Reader>
@@ -588,8 +716,15 @@ using output_archive = basic_output_archive<memory_writer>;
 using input_archive = basic_input_archive<memory_reader>;
 
 template <serializable T>
+std::size_t serialized_size(const T& value) {
+    size_archive archive;
+    const_cast<T&>(value).serialize(archive);
+    return archive.size();
+}
+
+template <serializable T>
 std::vector<std::byte> serialize(const T& value) {
-    memory_writer writer;
+    memory_writer writer(serialized_size(value));
     basic_output_archive archive(writer);
     const_cast<T&>(value).serialize(archive);
     return std::move(writer).take_bytes();
