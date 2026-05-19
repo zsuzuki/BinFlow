@@ -85,6 +85,17 @@ std::vector<std::byte> buffer(binflow::serialized_size(user));
 const auto written = binflow::serialize(user, buffer.data(), buffer.size());
 ```
 
+Use delimited serialization when reading one object from a larger buffer or
+stream:
+
+```cpp
+auto framed = binflow::serialize_delimited(user);
+auto [read_user, consumed] = binflow::deserialize_delimited<User>(framed);
+```
+
+Delimited data is encoded as `varint(payload_size)` followed by the regular
+payload. `consumed` includes both the size prefix and payload bytes.
+
 Build and run:
 
 ```sh

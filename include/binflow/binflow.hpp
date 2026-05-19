@@ -6,12 +6,12 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <utility>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <utility>
 #include <vector>
 
 namespace binflow {
@@ -220,6 +220,10 @@ public:
 
     [[nodiscard]] std::size_t remaining() const noexcept {
         return bytes_.size() - pos_;
+    }
+
+    [[nodiscard]] std::size_t position() const noexcept {
+        return pos_;
     }
 
     [[nodiscard]] std::byte read_byte() {
@@ -1115,6 +1119,12 @@ std::size_t serialized_size(const T& value) {
 }
 
 template <serializable T>
+std::size_t serialized_delimited_size(const T& value) {
+    const auto payload_size = serialized_size(value);
+    return detail::varint_size(payload_size) + payload_size;
+}
+
+template <serializable T>
 std::vector<std::byte> serialize(const T& value) {
     memory_writer writer(serialized_size(value));
     basic_output_archive archive(writer);
@@ -1136,12 +1146,50 @@ std::size_t serialize(const T& value, void* data, std::size_t size) {
 }
 
 template <serializable T>
+std::vector<std::byte> serialize_delimited(const T& value) {
+    const auto payload_size = serialized_size(value);
+    memory_writer writer(detail::varint_size(payload_size) + payload_size);
+    detail::write_varint(writer, payload_size);
+    basic_output_archive archive(writer);
+    const_cast<T&>(value).serialize(archive);
+    return std::move(writer).take_bytes();
+}
+
+template <serializable T>
+std::size_t serialize_delimited(const T& value, void* data, std::size_t size) {
+    const auto payload_size = serialized_size(value);
+    const auto required_size = detail::varint_size(payload_size) + payload_size;
+    if (size < required_size) {
+        throw std::runtime_error("output buffer is too small");
+    }
+
+    fixed_memory_writer writer(data, size);
+    detail::write_varint(writer, payload_size);
+    basic_output_archive archive(writer);
+    const_cast<T&>(value).serialize(archive);
+    return writer.size();
+}
+
+template <serializable T>
 T deserialize(std::span<const std::byte> bytes) {
     T value{};
     memory_reader reader(bytes);
     basic_input_archive archive(reader);
     archive.read(value);
     return value;
+}
+
+template <serializable T>
+std::pair<T, std::size_t> deserialize_delimited(std::span<const std::byte> bytes) {
+    memory_reader reader(bytes);
+    const auto payload_size = detail::read_varint(reader);
+    const auto payload = reader.read_bytes(static_cast<std::size_t>(payload_size));
+
+    T value{};
+    memory_reader payload_reader(payload);
+    basic_input_archive archive(payload_reader);
+    archive.read(value);
+    return {std::move(value), reader.position()};
 }
 
 template <serializable T>

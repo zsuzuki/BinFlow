@@ -119,11 +119,22 @@ int main() {
     std::vector<std::byte> external_buffer(expected_size);
     const auto external_size = binflow::serialize(written, external_buffer.data(), external_buffer.size());
     const bool external_matches = bytes == external_buffer;
+    const auto delimited_bytes = binflow::serialize_delimited(written);
+    std::vector<std::byte> delimited_stream = delimited_bytes;
+    delimited_stream.push_back(std::byte{0xaa});
+    delimited_stream.push_back(std::byte{0xbb});
+    const auto [delimited_read, delimited_consumed] = binflow::deserialize_delimited<UserV2>(delimited_stream);
+    const bool delimited_matches = delimited_read.checkpoints == written.checkpoints &&
+                                   delimited_read.buckets == written.buckets &&
+                                   delimited_consumed == delimited_bytes.size();
 
     std::cout << "computed size: " << expected_size << " bytes\n";
     std::cout << "encoded size: " << bytes.size() << " bytes\n";
     std::cout << "external buffer size: " << external_size << " bytes\n";
     std::cout << "external buffer matches: " << std::boolalpha << external_matches << '\n';
+    std::cout << "delimited size: " << delimited_bytes.size() << " bytes\n";
+    std::cout << "delimited consumed: " << delimited_consumed << " bytes\n";
+    std::cout << "delimited matches: " << delimited_matches << '\n';
     dump_hex(bytes);
 
     const auto read_v2 = binflow::deserialize<UserV2>(bytes);
