@@ -341,6 +341,12 @@ inline constexpr bool is_packed_numeric_v =
     std::is_same_v<T, std::int32_t> ||
     std::is_same_v<T, std::int64_t>;
 
+template <class T>
+inline constexpr bool is_repeated_message_v = false;
+
+template <serializable T, class Allocator>
+inline constexpr bool is_repeated_message_v<std::vector<T, Allocator>> = true;
+
 template <class Writer>
 void write_byte(Writer& writer, std::byte byte) {
     writer.write(std::span<const std::byte>(&byte, 1));
@@ -668,6 +674,14 @@ public:
         write_value(value);
     }
 
+    template <serializable T, class Allocator>
+    void field(std::uint32_t id, const std::vector<T, Allocator>& values) {
+        for (const auto& value : values) {
+            write_key(id, wire_type::bytes);
+            write_value(value);
+        }
+    }
+
     template <class T>
     void field(std::uint32_t id, const T& value, omit_if_default_t) {
         static_assert(id_is_valid_message<T>(), "unsupported field type");
@@ -707,7 +721,9 @@ public:
 private:
     template <class T>
     static consteval bool id_is_valid_message() {
-        return requires { detail::field_traits<std::remove_cvref_t<T>>::type; } || serializable<std::remove_cvref_t<T>>;
+        return requires { detail::field_traits<std::remove_cvref_t<T>>::type; } ||
+               serializable<std::remove_cvref_t<T>> ||
+               detail::is_repeated_message_v<std::remove_cvref_t<T>>;
     }
 
     template <class T>
@@ -814,6 +830,14 @@ public:
         size_ += value_size(value);
     }
 
+    template <serializable T, class Allocator>
+    void field(std::uint32_t id, const std::vector<T, Allocator>& values) {
+        for (const auto& value : values) {
+            size_ += key_size(id, wire_type::bytes);
+            size_ += value_size(value);
+        }
+    }
+
     template <class T>
     void field(std::uint32_t id, const T& value, omit_if_default_t) {
         static_assert(id_is_valid_message<T>(), "unsupported field type");
@@ -857,7 +881,9 @@ public:
 private:
     template <class T>
     static consteval bool id_is_valid_message() {
-        return requires { detail::field_traits<std::remove_cvref_t<T>>::type; } || serializable<std::remove_cvref_t<T>>;
+        return requires { detail::field_traits<std::remove_cvref_t<T>>::type; } ||
+               serializable<std::remove_cvref_t<T>> ||
+               detail::is_repeated_message_v<std::remove_cvref_t<T>>;
     }
 
     template <class T>
@@ -1082,6 +1108,13 @@ private:
         require_wire_type(actual, wire_type::bytes);
         const auto size = detail::read_varint(reader_);
         detail::read_packed_numeric_payload(reader_, static_cast<std::size_t>(size), values);
+    }
+
+    template <serializable T, class Allocator>
+    void read_value(wire_type actual, std::vector<T, Allocator>& values) {
+        T value{};
+        read_value(actual, value);
+        values.push_back(std::move(value));
     }
 
     template <class T, std::size_t N>

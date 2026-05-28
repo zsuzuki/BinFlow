@@ -32,6 +32,8 @@ struct Profile {
     std::string display_name;
     std::uint32_t reputation = 0;
 
+    friend bool operator==(const Profile&, const Profile&) = default;
+
     template <class Archive>
     void serialize(Archive& ar) {
         ar(1_f, display_name)
@@ -69,6 +71,7 @@ struct UserV2 {
     std::array<std::uint16_t, 4> buckets{};
     std::array<std::int32_t, 3> corrections{};
     Profile profile;
+    std::vector<Profile> family_;
 
     template <class Archive>
     void serialize(Archive& ar) {
@@ -85,7 +88,8 @@ struct UserV2 {
           (11_f, checkpoints)
           (12_f, offsets)
           (13_f, buckets)
-          (14_f, corrections);
+          (14_f, corrections)
+          (15_f, family_);
     }
 };
 
@@ -111,6 +115,10 @@ int main() {
         .buckets = {3, 5, 8, 13},
         .corrections = {-2, 0, 2},
         .profile = {.display_name = "Alice A.", .reputation = 77},
+        .family_ = {
+            {.display_name = "Bob A.", .reputation = 41},
+            {.display_name = "Carol A.", .reputation = 52},
+        },
     };
     written.options.reset(UserOption::CanDelete);
 
@@ -126,6 +134,7 @@ int main() {
     const auto [delimited_read, delimited_consumed] = binflow::deserialize_delimited<UserV2>(delimited_stream);
     const bool delimited_matches = delimited_read.checkpoints == written.checkpoints &&
                                    delimited_read.buckets == written.buckets &&
+                                   delimited_read.family_ == written.family_ &&
                                    delimited_consumed == delimited_bytes.size();
 
     std::cout << "computed size: " << expected_size << " bytes\n";
@@ -139,6 +148,7 @@ int main() {
 
     const auto read_v2 = binflow::deserialize<UserV2>(bytes);
     const bool vector_matches = read_v2.checkpoints == written.checkpoints && read_v2.offsets == written.offsets;
+    const bool repeated_message_matches = read_v2.family_ == written.family_;
     const bool array_matches = read_v2.buckets == written.buckets && read_v2.corrections == written.corrections;
     std::cout << "v2: id=" << read_v2.id
               << ", name=" << read_v2.name
@@ -152,7 +162,9 @@ int main() {
               << ", can_delete=" << read_v2.options.test(UserOption::CanDelete)
               << ", checkpoints=" << read_v2.checkpoints.size()
               << ", offsets=" << read_v2.offsets.size()
+              << ", family=" << read_v2.family_.size()
               << ", vectors_match=" << vector_matches
+              << ", repeated_messages_match=" << repeated_message_matches
               << ", arrays_match=" << array_matches
               << ", display_name=" << read_v2.profile.display_name
               << ", reputation=" << read_v2.profile.reputation << '\n';

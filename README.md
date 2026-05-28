@@ -19,6 +19,17 @@ enum class UserOption : std::uint32_t {
     UsesBetaUi = 2,
 };
 
+struct Profile {
+    std::string display_name;
+    std::uint32_t reputation = 0;
+
+    template <class Archive>
+    void serialize(Archive& ar) {
+        ar(1_f, display_name)
+          (2_f, reputation);
+    }
+};
+
 struct User {
     static constexpr std::uint32_t default_quota = 100000;
 
@@ -33,6 +44,7 @@ struct User {
     std::vector<std::uint32_t> checkpoints;
     std::vector<std::int32_t> offsets;
     std::array<std::uint16_t, 4> buckets{};
+    std::vector<Profile> family;
 
     template <class Archive>
     void serialize(Archive& ar) {
@@ -46,7 +58,8 @@ struct User {
           (8_f, quota, binflow::omit_if(default_quota))
           (9_f, checkpoints)
           (10_f, offsets)
-          (11_f, buckets);
+          (11_f, buckets)
+          (12_f, family);
     }
 };
 
@@ -70,6 +83,9 @@ Numeric vectors and arrays are encoded as packed length-delimited varint
 payloads. Supported element types are unsigned and signed 8/16/32/64-bit
 integers. Strings and `std::vector<bool>` are intentionally not part of packed
 container support.
+
+Vectors of serializable message types are encoded as repeated length-delimited
+fields with the same field id, one nested message per element.
 
 The exact encoded size can be computed without producing a byte buffer:
 
